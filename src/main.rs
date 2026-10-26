@@ -4,7 +4,11 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 fn main() -> std::process::ExitCode {
-    let review = match parse_review(std::env::args_os().skip(1)) {
+    run(std::env::args_os().skip(1))
+}
+
+fn run(args: impl IntoIterator<Item = std::ffi::OsString>) -> std::process::ExitCode {
+    let review = match parse_review(args) {
         Ok(review) => review,
         Err(error) => {
             eprintln!("askpass: {error}");
@@ -277,4 +281,22 @@ mod tests {
         let command = ["a b".into(), "".into(), "a\\b".into(), "a\nb".into()];
         assert_eq!(format_command(&command), "a\\ b \\0 a\\\\b a\\nb");
     }
+
+    #[test]
+    fn command_escapes_all_whitespace_and_control_characters() {
+        let command = ["\t\r\n\u{a0}\u{2003}\u{2028}\u{1b}\u{7f}".into()];
+        assert_eq!(
+            format_command(&command),
+            "\\t\\r\\n\\u{a0}\\u{2003}\\u{2028}\\u{1b}\\u{7f}"
+        );
+    }
+
+    #[test]
+    fn command_keeps_literal_punctuation_and_distinguishes_empty_from_backslash_zero() {
+        let command = ["".into(), "\\0".into(), "'\"<&_%é".into(), "--flag".into()];
+        assert_eq!(format_command(&command), "\\0 \\\\0 '\"<&_%é --flag");
+    }
 }
+
+#[cfg(test)]
+mod gtk_tests;

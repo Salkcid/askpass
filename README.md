@@ -57,6 +57,36 @@ window-rule {
 }
 ```
 
+## Testing
+
+Run the parser, password-output, command-formatting, and CLI startup tests with:
+
+```sh
+nix develop -c cargo test --all-targets
+```
+
+The GTK suite requires a reachable Wayland display and is ignored by the default
+test run. From a Wayland desktop session, run:
+
+```sh
+nix develop -c cargo test --bin askpass gtk_tests::dialog_contracts -- --ignored --exact --nocapture
+```
+
+It opens and closes ten dialogs in isolated child processes using synthetic
+passwords. It checks Authorize and Enter, empty input, Cancel, Escape, window
+close, oversized passwords, broken output pipes, literal field contents, and
+scrolling with long requests at normal and increased text size. Password output
+is captured in private test pipes. Keyboard actions are exercised through GTK
+signals; compositor key routing, final focus, and placement still need a manual
+check in niri.
+
+For formatting and lint checks:
+
+```sh
+nix develop -c cargo fmt --check
+nix develop -c cargo clippy --all-targets -- -D warnings
+```
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

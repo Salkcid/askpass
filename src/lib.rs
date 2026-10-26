@@ -206,6 +206,12 @@ mod tests {
     use super::*;
     use std::io::Read;
     use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStringExt;
+
+    fn replace(args: &mut [OsString], option: &str, value: impl Into<OsString>) {
+        let index = args.iter().position(|arg| arg == option).unwrap();
+        args[index + 1] = value.into();
+    }
 
     fn valid() -> Vec<OsString> {
         [
@@ -245,6 +251,197 @@ mod tests {
         );
         let review = parse_review(args).unwrap();
         assert_eq!(review.command, ["/usr/bin/true", "", "--flag", "a\n<&%é"]);
+    }
+
+    #[test]
+    fn parses_every_field_and_preserves_origin_order() {
+        let mut args = valid();
+        replace(&mut args, "--reason", "  <b>Install</b>\n_é%&  ");
+        args.extend(
+            ["--origin", "42:/bin/a:b", "--origin", "4294967295:/bin/sh"]
+                .into_iter()
+                .map(OsString::from),
+        );
+        assert_eq!(
+            parse_review(args).unwrap(),
+            Review {
+                reason: "  <b>Install</b>\n_é%&  ".into(),
+                command: vec!["/usr/bin/true".into()],
+                working_directory: "/tmp".into(),
+                requesting_user: "alice".into(),
+                requesting_uid: 1000,
+                run_as_user: "root".into(),
+                origins: vec![
+                    Origin {
+                        pid: 42,
+                        executable: "/bin/a:b".into()
+                    },
+                    Origin {
+                        pid: u32::MAX,
+                        executable: "/bin/sh".into()
+                    },
+                ],
+            }
+        );
+        assert!(parse_review(valid()).unwrap().origins.is_empty());
+    }
+
+    #[test]
+    fn rejects_missing_and_empty_required_fields() {
+        for (option, name) in [
+            ("--reason", "reason"),
+            ("--command-arg", "command"),
+            ("--working-directory", "working directory"),
+            ("--requesting-user", "requesting user"),
+            ("--requesting-uid", "requesting UID"),
+            ("--run-as-user", "run-as user"),
+        ] {
+            let mut args = valid();
+            let index = args.iter().position(|arg| arg == option).unwrap();
+            args.drain(index..index + 2);
+            assert!(
+                parse_review(args).unwrap_err().contains(name),
+                "missing {option}"
+            );
+            let mut args = valid();
+            replace(&mut args, option, "");
+            assert!(
+                parse_review(args).unwrap_err().contains(name),
+                "empty {option}"
+            );
+        }
+        let mut args = valid();
+        replace(&mut args, "--reason", " \t\n\u{2003}");
+        assert_eq!(parse_review(args).unwrap_err(), "reason must not be empty");
+    }
+
+    #[test]
+    fn rejects_every_duplicate_singleton() {
+        for option in [
+            "--reason",
+            "--working-directory",
+            "--requesting-user",
+            "--requesting-uid",
+            "--run-as-user",
+        ] {
+            let mut args = valid();
+            args.extend([option, "1"].into_iter().map(OsString::from));
+            assert_eq!(
+                parse_review(args).unwrap_err(),
+                format!("duplicate {option}")
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_missing_mode_and_dangling_options() {
+        assert_eq!(parse_review([]).unwrap_err(), "expected --review");
+        let mut args = valid();
+        args[0] = "--other".into();
+        assert_eq!(parse_review(args).unwrap_err(), "expected --review");
+        for option in [
+            "--reason",
+            "--command-arg",
+            "--working-directory",
+            "--requesting-user",
+            "--requesting-uid",
+            "--run-as-user",
+            "--origin",
+        ] {
+            let mut args = valid();
+            args.push(option.into());
+            assert_eq!(
+                parse_review(args).unwrap_err(),
+                format!("missing value for {option}")
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_non_utf8_option_names_and_values() {
+        let invalid = OsString::from_vec(vec![0xff]);
+        let mut args = valid();
+        args.extend([invalid.clone(), "value".into()]);
+        assert_eq!(parse_review(args).unwrap_err(), "option name is not UTF-8");
+        for option in [
+            "--reason",
+            "--command-arg",
+            "--working-directory",
+            "--requesting-user",
+            "--requesting-uid",
+            "--run-as-user",
+        ] {
+            let mut args = valid();
+            replace(&mut args, option, invalid.clone());
+            assert_eq!(
+                parse_review(args).unwrap_err(),
+                format!("value for {option} is not UTF-8")
+            );
+        }
+        let mut args = valid();
+        args.extend(["--origin".into(), invalid]);
+        assert_eq!(
+            parse_review(args).unwrap_err(),
+            "value for --origin is not UTF-8"
+        );
+    }
+
+    #[test]
+    fn validates_uid_numeric_limits() {
+        for uid in ["0", "4294967295", "0001"] {
+            let mut args = valid();
+            replace(&mut args, "--requesting-uid", uid);
+            assert_eq!(
+                parse_review(args).unwrap().requesting_uid,
+                uid.parse::<u32>().unwrap()
+            );
+        }
+        for uid in ["-1", "+1", " 1", "1 ", "1.0", "١", "4294967296"] {
+            let mut args = valid();
+            replace(&mut args, "--requesting-uid", uid);
+            assert!(parse_review(args).is_err(), "accepted UID {uid:?}");
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_origins() {
+        for origin in [
+            "",
+            "42",
+            ":/bin/sh",
+            "42:",
+            "0:/bin/sh",
+            "-1:/bin/sh",
+            "+1:/bin/sh",
+            " 1:/bin/sh",
+            "١:/bin/sh",
+            "4294967296:/bin/sh",
+        ] {
+            let mut args = valid();
+            args.extend(["--origin", origin].into_iter().map(OsString::from));
+            assert!(parse_review(args).is_err(), "accepted origin {origin:?}");
+        }
+    }
+
+    #[test]
+    fn request_limit_counts_utf8_bytes_and_accepts_exact_boundary() {
+        for multibyte in [false, true] {
+            let mut args = valid();
+            let used: usize = args.iter().map(|arg| arg.len()).sum();
+            let remaining = MAX_DISPLAY_BYTES - used - "--command-arg".len();
+            let value = if multibyte {
+                "é".repeat(remaining / 2) + &"x".repeat(remaining % 2)
+            } else {
+                "x".repeat(remaining)
+            };
+            args.extend(["--command-arg".into(), value.clone().into()]);
+            assert_eq!(parse_review(args.clone()).unwrap().command[1], value);
+            args.last_mut().unwrap().push("x");
+            assert_eq!(
+                parse_review(args).unwrap_err(),
+                "review request exceeds 16 KiB"
+            );
+        }
     }
 
     #[test]
@@ -315,5 +512,119 @@ mod tests {
         let mut output = Vec::new();
         reader.read_to_end(&mut output).unwrap();
         assert!(output.is_empty());
+    }
+
+    fn pipe() -> (std::fs::File, std::fs::File) {
+        let mut fds = [-1; 2];
+        // SAFETY: fds has room for both descriptors; each is owned exactly once.
+        assert_eq!(
+            unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_NONBLOCK | libc::O_CLOEXEC) },
+            0
+        );
+        unsafe {
+            (
+                std::fs::File::from_raw_fd(fds[0]),
+                std::fs::File::from_raw_fd(fds[1]),
+            )
+        }
+    }
+
+    #[test]
+    fn password_atomic_boundary_uses_bytes_including_newline() {
+        for multibyte in [false, true] {
+            let (mut reader, writer) = pipe();
+            let limit = pipe_atomic_limit(writer.as_raw_fd()).unwrap();
+            let password = if multibyte {
+                "é".repeat((limit - 1) / 2) + &"x".repeat((limit - 1) % 2)
+            } else {
+                "x".repeat(limit - 1)
+            };
+            write_password_to_fd(writer.as_raw_fd(), &password).unwrap();
+            drop(writer);
+            let mut output = Vec::new();
+            reader.read_to_end(&mut output).unwrap();
+            assert_eq!(output, [password.as_bytes(), b"\n"].concat());
+
+            let (mut reader, writer) = pipe();
+            let error = write_password_to_fd(writer.as_raw_fd(), &(password + "x")).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+            drop(writer);
+            let mut output = Vec::new();
+            reader.read_to_end(&mut output).unwrap();
+            assert!(output.is_empty());
+        }
+    }
+
+    #[test]
+    fn rejects_non_pipe_and_invalid_descriptors_without_writing() {
+        let path = std::env::temp_dir().join(format!("askpass-non-pipe-{}", std::process::id()));
+        let file = std::fs::File::options()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(
+            write_password_to_fd(file.as_raw_fd(), "secret")
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::Unsupported
+        );
+        assert_eq!(file.metadata().unwrap().len(), 0);
+        let file = std::fs::File::options()
+            .write(true)
+            .open("/dev/null")
+            .unwrap();
+        assert_eq!(
+            write_password_to_fd(file.as_raw_fd(), "secret")
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::Unsupported
+        );
+        assert_eq!(
+            write_password_to_fd(-1, "secret")
+                .unwrap_err()
+                .raw_os_error(),
+            Some(libc::EBADF)
+        );
+    }
+
+    #[test]
+    fn broken_pipe_reports_failure() {
+        let (reader, writer) = pipe();
+        drop(reader);
+        // Rust test executables ignore SIGPIPE, just like the application.
+        assert_eq!(
+            write_password_to_fd(writer.as_raw_fd(), "secret")
+                .unwrap_err()
+                .raw_os_error(),
+            Some(libc::EPIPE)
+        );
+    }
+
+    #[test]
+    fn full_nonblocking_pipe_emits_no_password_bytes() {
+        use std::io::Write;
+        let (mut reader, mut writer) = pipe();
+        let fill = vec![b'x'; pipe_atomic_limit(writer.as_raw_fd()).unwrap()];
+        let mut filled = 0;
+        loop {
+            match writer.write(&fill) {
+                Ok(0) => panic!("pipe made no progress"),
+                Ok(n) => filled += n,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                Err(error) => panic!("{error}"),
+            }
+        }
+        assert_eq!(
+            write_password_to_fd(writer.as_raw_fd(), "secret")
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::WouldBlock
+        );
+        drop(writer);
+        let mut output = Vec::new();
+        reader.read_to_end(&mut output).unwrap();
+        assert_eq!(output, vec![b'x'; filled]);
     }
 }

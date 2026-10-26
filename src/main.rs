@@ -50,42 +50,58 @@ fn build_window(app: &gtk::Application, review: &Review, submitted: Rc<Cell<bool
         .default_width(560)
         .build();
 
-    let outer = gtk::Box::new(gtk::Orientation::Vertical, 12);
-    outer.set_margin_top(16);
-    outer.set_margin_bottom(16);
-    outer.set_margin_start(16);
-    outer.set_margin_end(16);
+    let outer = gtk::Box::new(gtk::Orientation::Vertical, 20);
+    outer.set_margin_top(24);
+    outer.set_margin_bottom(24);
+    outer.set_margin_start(24);
+    outer.set_margin_end(24);
 
     let scroll = gtk::ScrolledWindow::new();
     scroll.set_vexpand(true);
     scroll.set_hexpand(true);
-    scroll.set_min_content_height(180);
+    scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
     scroll.set_max_content_height(420);
     scroll.set_propagate_natural_height(true);
-    let sections = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    let sections = gtk::Box::new(gtk::Orientation::Vertical, 20);
+
+    let heading = text_label("Administrator access requested");
+    let heading_style = gtk::pango::AttrList::new();
+    heading_style.insert(gtk::pango::AttrInt::new_weight(gtk::pango::Weight::Bold));
+    heading_style.insert(gtk::pango::AttrFloat::new_scale(1.3));
+    heading.set_attributes(Some(&heading_style));
+    sections.append(&heading);
+
+    let explanation = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    let reason_label = text_label("Reason provided by caller");
+    reason_label.add_css_class("dim-label");
+    explanation.append(&reason_label);
+    let reason = text_label(&review.reason);
+    reason.set_selectable(true);
+    explanation.append(&reason);
+    sections.append(&explanation);
 
     add_command_section(&sections, &format_command(&review.command));
-    add_section(&sections, None, &review.reason);
+    let identity = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    add_detail_row(&identity, "Working directory:", &review.working_directory);
+    add_detail_row(&identity, "Run as:", &review.run_as_user);
+    add_detail_row(&identity, "Requested by:", &review.requesting_user);
+    sections.append(&identity);
     add_details_section(&sections, review);
-    let origins = if review.origins.is_empty() {
-        "Unavailable from caller".to_owned()
-    } else {
-        review
-            .origins
-            .iter()
-            .map(|origin| format!("PID {}: {:?}", origin.pid, origin.executable))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-    add_section(&sections, Some("Origin observed by caller"), &origins);
     scroll.set_child(Some(&sections));
     outer.append(&scroll);
 
+    outer.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    let password_section = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    let password_label = gtk::Label::new(Some("_Password"));
+    password_label.set_use_underline(true);
+    password_label.set_xalign(0.0);
     let password = gtk::PasswordEntry::new();
     password.set_show_peek_icon(false);
-    password.set_placeholder_text(Some("Password"));
     password.set_activates_default(false);
-    outer.append(&password);
+    password_label.set_mnemonic_widget(Some(&password));
+    password_section.append(&password_label);
+    password_section.append(&password);
+    outer.append(&password_section);
 
     let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     buttons.set_halign(gtk::Align::End);
@@ -143,9 +159,11 @@ fn build_window(app: &gtk::Application, review: &Review, submitted: Rc<Cell<bool
 }
 
 fn format_command(command: &[String]) -> String {
-    let mut display = String::from("sudo");
-    for argument in command {
-        display.push(' ');
+    let mut display = String::new();
+    for (index, argument) in command.iter().enumerate() {
+        if index > 0 {
+            display.push(' ');
+        }
         if argument.is_empty() {
             display.push_str("\\0");
             continue;
@@ -167,68 +185,69 @@ fn format_command(command: &[String]) -> String {
     display
 }
 
-fn add_command_section(container: &gtk::Box, command: &str) {
-    let frame = gtk::Frame::new(None);
-    let scroll = gtk::ScrolledWindow::new();
-    scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Never);
-    scroll.set_hexpand(true);
-
-    let label = gtk::Label::new(Some(command));
-    label.set_selectable(true);
+fn text_label(text: &str) -> gtk::Label {
+    let label = gtk::Label::new(Some(text));
+    label.set_wrap(true);
+    label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    label.set_max_width_chars(60);
     label.set_xalign(0.0);
-    label.set_margin_top(8);
-    label.set_margin_bottom(8);
-    label.set_margin_start(10);
-    label.set_margin_end(10);
-    scroll.set_child(Some(&label));
-    frame.set_child(Some(&scroll));
-    container.append(&frame);
+    label
 }
 
-fn add_section(container: &gtk::Box, title: Option<&str>, value: &str) {
-    let frame = gtk::Frame::new(title);
-    let label = gtk::Label::new(None);
-    label.set_text(value);
+fn add_command_section(container: &gtk::Box, command: &str) {
+    let section = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    section.append(&text_label("Command"));
+    let frame = gtk::Frame::new(None);
+    let label = text_label(command);
+    label.add_css_class("monospace");
     label.set_selectable(true);
-    label.set_wrap(true);
-    label.set_max_width_chars(72);
-    label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-    label.set_xalign(0.0);
-    label.set_margin_top(8);
-    label.set_margin_bottom(8);
-    label.set_margin_start(10);
-    label.set_margin_end(10);
+    label.set_margin_top(12);
+    label.set_margin_bottom(12);
+    label.set_margin_start(12);
+    label.set_margin_end(12);
     frame.set_child(Some(&label));
-    container.append(&frame);
+    section.append(&frame);
+    container.append(&section);
 }
 
 fn add_details_section(container: &gtk::Box, review: &Review) {
-    let frame = gtk::Frame::new(None);
-    let details = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    details.set_margin_top(8);
-    details.set_margin_bottom(8);
-    details.set_margin_start(10);
-    details.set_margin_end(10);
+    let expander = gtk::Expander::new(Some("Request details"));
+    let details = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    details.set_margin_top(12);
+    details.set_margin_start(16);
 
-    add_detail_row(&details, "Working directory:", &review.working_directory);
     add_detail_row(
         &details,
-        "Requesting user:",
-        &format!("{} ({})", review.requesting_user, review.requesting_uid),
+        "Requesting UID:",
+        &review.requesting_uid.to_string(),
     );
-    add_detail_row(&details, "Run as:", &review.run_as_user);
-
-    frame.set_child(Some(&details));
-    container.append(&frame);
+    let origins = if review.origins.is_empty() {
+        "Unavailable".to_owned()
+    } else {
+        review
+            .origins
+            .iter()
+            .map(|origin| format!("PID {}: {:?}", origin.pid, origin.executable))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    add_detail_row(&details, "Request origin:", &origins);
+    let provenance = text_label("Request details are supplied by the caller.");
+    provenance.add_css_class("dim-label");
+    details.append(&provenance);
+    expander.set_child(Some(&details));
+    container.append(&expander);
 }
 
 fn add_detail_row(container: &gtk::Box, title: &str, value: &str) {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
 
     let title_label = gtk::Label::new(Some(title));
+    title_label.set_valign(gtk::Align::Start);
+    title_label.add_css_class("dim-label");
     row.append(&title_label);
 
-    let value_label = gtk::Label::new(Some(value));
+    let value_label = text_label(value);
     value_label.set_selectable(true);
     value_label.set_wrap(true);
     value_label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
@@ -253,13 +272,13 @@ mod tests {
         ];
         assert_eq!(
             format_command(&command),
-            "sudo nixos-rebuild switch --flake /home/qy1n/nixos#laptop"
+            "nixos-rebuild switch --flake /home/qy1n/nixos#laptop"
         );
     }
 
     #[test]
     fn command_preserves_unusual_argument_boundaries() {
         let command = ["a b".into(), "".into(), "a\\b".into(), "a\nb".into()];
-        assert_eq!(format_command(&command), "sudo a\\ b \\0 a\\\\b a\\nb");
+        assert_eq!(format_command(&command), "a\\ b \\0 a\\\\b a\\nb");
     }
 }

@@ -59,15 +59,17 @@ The structured `--review` mode is required for the `approve` integration.
   before considering layer shell.
 - Title the window `Administrator access requested`. Show the fields in a
   readable hierarchy:
-  1. The command in one unlabeled, horizontally scrollable line, prefixed with
-     `sudo`. Show ordinary arguments without quotes; escape whitespace,
+  1. An in-content heading followed by the reason, labeled
+     `Reason provided by caller`.
+  2. A labeled, selectable monospace command block that wraps without truncation.
+     Display the supplied command without adding a `sudo` prefix.
+     Show ordinary arguments without quotes; escape whitespace,
      backslashes, and control characters within arguments, and display empty
      arguments as `\0`.
-  2. The reason supplied by the caller in a separate unlabeled block.
-  3. One block with `Working directory: PATH`, `Requesting user: NAME (UID)`,
-     and `Run as: NAME` on separate lines.
-  4. `Origin observed by caller` with ordered PID/executable entries, or an
-     explicit unavailable message.
+  3. Always-visible `Working directory`, `Run as`, and `Requested by` rows.
+  4. A collapsed `Request details` expander with the requesting UID
+     and request origin with ordered PID/executable entries
+     or `Unavailable`. Explain that details are supplied by the caller.
 - Display all values literally, except for the command's documented display
   escaping. Do not interpret them as Pango markup, HTML, shell syntax, or
   format strings. Preserve line breaks in the reason. Visually
@@ -76,7 +78,8 @@ The structured `--review` mode is required for the `approve` integration.
   scrolls for long requests. Keep the password field and actions visible. Never
   silently truncate the command, reason, or required facts. Make content
   selectable for inspection.
-- Use `GtkPasswordEntry`, focused when the window opens. Provide Cancel and
+- Use `GtkPasswordEntry` with a persistent mnemonic label and its native Caps
+  Lock indicator, focused when the window opens. Provide Cancel and
   Authorize buttons. Enter submits only when the field is nonempty; Escape and
   window close cancel. The final button press means submit this password to the
   caller; authentication still occurs outside the dialog.
@@ -140,8 +143,8 @@ from the caller's explanation. The README must state this limitation plainly.
 
 ## Acceptance checks
 
-- Each field appears separately; the command and caller's reason appear first,
-  without headings, and the remaining facts retain labels. An argument
+- Each field appears separately; the labeled reason and command appear above
+  the identity summary and expandable details. An argument
   containing newlines, quotes, ampersands, angle brackets, underscores, percent
   signs, and non-ASCII text cannot change the layout or impersonate another field.
 - Command argument boundaries survive from `approve` through the adapter to

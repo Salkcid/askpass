@@ -34,12 +34,15 @@ The dialog shows claims supplied by its caller. It cannot verify the claimed
 identity, command, origin, or safety. It does not authenticate the password.
 Those jobs belong to the caller and authentication system.
 
-For niri, if the window does not float by default, use a rule for application ID
-`org.askpass.Review`:
+Niri automatically floats parented dialogs and fixed-size windows. This app
+opens a standalone, resizable window, so add this rule for application ID
+`org.askpass.Review` to open it floating. The `open-maximized false` setting
+also clears any global maximize rule for this window:
 
 ```kdl
 window-rule {
     match app-id="org.askpass.Review"
+    open-maximized false
     open-floating true
 }
 ```

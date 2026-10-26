@@ -3,6 +3,7 @@ name = "askpass"
 version = "0.1.0"
 edition = "2021"
 description = "Wayland GTK 4 password review dialog"
+license = "MIT"
 
 [dependencies]
 gtk = { package = "gtk4", version = "0.10" }

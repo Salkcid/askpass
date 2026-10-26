@@ -46,3 +46,7 @@ window-rule {
     open-floating true
 }
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).

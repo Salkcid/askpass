@@ -1,12 +1,80 @@
 use std::ffi::OsString;
-use std::io::{self, Write};
+use std::io;
+use std::os::fd::RawFd;
 
 pub const MAX_DISPLAY_BYTES: usize = 16 * 1024;
 
-pub fn write_password(writer: &mut impl Write, password: &str) -> io::Result<()> {
-    writer.write_all(password.as_bytes())?;
-    writer.write_all(b"\n")?;
-    writer.flush()
+pub fn write_password(password: &str) -> io::Result<()> {
+    write_password_to_fd(libc::STDOUT_FILENO, password)
+}
+
+pub fn validate_stdout() -> io::Result<()> {
+    pipe_atomic_limit(libc::STDOUT_FILENO).map(|_| ())
+}
+
+fn pipe_atomic_limit(fd: RawFd) -> io::Result<usize> {
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: stat points to writable storage, and fd is checked by fstat.
+    if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: fstat initialized stat on success.
+    let stat = unsafe { stat.assume_init() };
+    if stat.st_mode & libc::S_IFMT != libc::S_IFIFO {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "stdout must be a pipe",
+        ));
+    }
+
+    // SAFETY: fd is a valid pipe descriptor after fstat.
+    let pipe_buf = unsafe { libc::fpathconf(fd, libc::_PC_PIPE_BUF) };
+    if pipe_buf <= 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "pipe atomic write limit is unavailable",
+        ));
+    }
+    Ok(pipe_buf as usize)
+}
+
+fn write_password_to_fd(fd: RawFd, password: &str) -> io::Result<()> {
+    let pipe_buf = pipe_atomic_limit(fd)?;
+    let length = password
+        .len()
+        .checked_add(1)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "password is too long"))?;
+    if length > pipe_buf {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "password exceeds the pipe's atomic write limit",
+        ));
+    }
+
+    let bytes = password.as_bytes();
+    let newline = b"\n";
+    let parts = [
+        libc::iovec {
+            iov_base: bytes.as_ptr() as *mut libc::c_void,
+            iov_len: bytes.len(),
+        },
+        libc::iovec {
+            iov_base: newline.as_ptr() as *mut libc::c_void,
+            iov_len: newline.len(),
+        },
+    ];
+    // SAFETY: both buffers remain alive for the call, and writev only reads them.
+    let written = unsafe { libc::writev(fd, parts.as_ptr(), parts.len() as libc::c_int) };
+    if written < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if written as usize != length {
+        return Err(io::Error::new(
+            io::ErrorKind::WriteZero,
+            "incomplete password write",
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,6 +204,8 @@ fn required_nonempty(value: Option<String>, name: &str) -> Result<String, String
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
+    use std::os::fd::{AsRawFd, FromRawFd};
 
     fn valid() -> Vec<OsString> {
         [
@@ -216,8 +286,34 @@ mod tests {
 
     #[test]
     fn password_output_is_exact() {
+        let mut fds = [0; 2];
+        // SAFETY: fds has space for the two descriptors created by pipe.
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        // SAFETY: pipe returned two owned descriptors.
+        let mut reader = unsafe { std::fs::File::from_raw_fd(fds[0]) };
+        let writer = unsafe { std::fs::File::from_raw_fd(fds[1]) };
+        write_password_to_fd(writer.as_raw_fd(), "sëcret").unwrap();
+        drop(writer);
         let mut output = Vec::new();
-        write_password(&mut output, "sëcret").unwrap();
+        reader.read_to_end(&mut output).unwrap();
         assert_eq!(output, "sëcret\n".as_bytes());
+    }
+
+    #[test]
+    fn oversized_password_emits_nothing() {
+        let mut fds = [0; 2];
+        // SAFETY: fds has space for the two descriptors created by pipe.
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        // SAFETY: pipe returned two owned descriptors.
+        let mut reader = unsafe { std::fs::File::from_raw_fd(fds[0]) };
+        let writer = unsafe { std::fs::File::from_raw_fd(fds[1]) };
+        // SAFETY: writer is a valid pipe descriptor.
+        let pipe_buf = unsafe { libc::fpathconf(writer.as_raw_fd(), libc::_PC_PIPE_BUF) };
+        assert!(pipe_buf > 0);
+        assert!(write_password_to_fd(writer.as_raw_fd(), &"x".repeat(pipe_buf as usize)).is_err());
+        drop(writer);
+        let mut output = Vec::new();
+        reader.read_to_end(&mut output).unwrap();
+        assert!(output.is_empty());
     }
 }

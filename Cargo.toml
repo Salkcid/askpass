@@ -6,3 +6,4 @@ description = "Wayland GTK 4 password review dialog"
 
 [dependencies]
 gtk = { package = "gtk4", version = "0.10" }
+libc = "0.2"

@@ -83,14 +83,16 @@ The structured `--review` mode is required for the `approve` integration.
 
 ## Password output and failures
 
-- On Authorize, write only the entered password followed by one newline to
-  standard output, flush it, and exit successfully. Never print review data or
-  status text to standard output.
+- On Authorize, write only the entered password followed by one newline
+  directly to standard output, then exit successfully. Never print review data
+  or status text to standard output.
+- Require stdout to be a pipe. Reject a password whose UTF-8 bytes plus newline
+  exceed the pipe's atomic write limit, then emit both with one write.
 - On Cancel, Escape, window close, validation failure, or UI startup failure,
   write no password bytes and exit nonzero. Diagnostics may go to standard
   error, but must never contain the password.
-- Treat stdout write or flush failure as failure. Do not claim successful
-  submission if the password did not reach the caller.
+- Treat stdout write failure as failure. Do not claim successful submission if
+  the password did not reach the caller.
 - Keep the password in process memory only as long as needed. Do not put it in
   files, logs, command arguments, environment variables, clipboard, or
   telemetry. Avoid unnecessary copies where GTK permits. Mask the field and

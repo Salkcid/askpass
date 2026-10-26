@@ -3,6 +3,8 @@
 `askpass` is a GTK 4 password review dialog for Wayland. It displays a structured
 request and writes the entered password, followed by one newline, to stdout only
 when Authorize is pressed. Cancellation and errors produce no password output.
+Standard output must be a pipe. A password whose UTF-8 bytes plus newline exceed
+that pipe's atomic write limit is rejected without output.
 
 Build with `nix develop -c cargo build --release` or from a shell with Rust,
 GTK 4 development files, and `pkg-config` installed. The binary is
@@ -18,6 +20,9 @@ askpass --review \
   --requesting-user "$USER" --requesting-uid "$(id -u)" \
   --run-as-user root
 ```
+
+The example shows the arguments; a caller must connect stdout to a pipe for
+the dialog to open.
 
 Each `--command-arg` is one argument, including empty strings and strings that
 begin with `-`. `--origin PID:EXECUTABLE` may be repeated, nearest ancestor

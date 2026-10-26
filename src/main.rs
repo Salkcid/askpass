@@ -1,7 +1,6 @@
-use askpass::{parse_review, write_password, Review};
+use askpass::{parse_review, validate_stdout, write_password, Review};
 use gtk::prelude::*;
 use std::cell::Cell;
-use std::io;
 use std::rc::Rc;
 
 fn main() -> std::process::ExitCode {
@@ -12,6 +11,11 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
+
+    if let Err(error) = validate_stdout() {
+        eprintln!("askpass: {error}");
+        return std::process::ExitCode::FAILURE;
+    }
 
     gtk::gdk::set_allowed_backends("wayland");
     if gtk::init().is_err() || gtk::gdk::Display::default().is_none() {
@@ -121,9 +125,7 @@ fn build_window(app: &gtk::Application, review: &Review, submitted: Rc<Cell<bool
             if text.is_empty() {
                 return;
             }
-            let stdout = io::stdout();
-            let mut stdout = stdout.lock();
-            let result = write_password(&mut stdout, &text);
+            let result = write_password(&text);
             password.set_text("");
             match result {
                 Ok(()) => submitted.set(true),

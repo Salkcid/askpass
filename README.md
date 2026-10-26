@@ -34,10 +34,11 @@ first. A request can contain at most 16 KiB of option and value text. All
 values must be UTF-8; callers must escape non-UTF-8 bytes without losing their
 original bytes for execution.
 
-The dialog highlights the caller's reason and displays the command in a wrapping,
-selectable monospace block. The working directory, target user, and requesting
-user stay visible; expand Request details to inspect the UID and request origin. The
-password field has a persistent label and a native Caps Lock indicator.
+The dialog opens with “Administrator access requested from:” and the working
+directory on the next line, followed by the command in a wrapping, selectable
+monospace block and then the caller's reason. The target user and requesting
+user stay visible; expand Request details to inspect the UID and request origin.
+The password field has a persistent label and a native Caps Lock indicator.
 
 The dialog shows claims supplied by its caller. It cannot verify the claimed
 identity, command, origin, or safety. It does not authenticate the password.

@@ -64,25 +64,24 @@ fn build_window(app: &gtk::Application, review: &Review, submitted: Rc<Cell<bool
     scroll.set_propagate_natural_height(true);
     let sections = gtk::Box::new(gtk::Orientation::Vertical, 20);
 
-    let heading = text_label("Administrator access requested");
+    let origin = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    let heading = text_label("Administrator access requested from:");
     let heading_style = gtk::pango::AttrList::new();
     heading_style.insert(gtk::pango::AttrInt::new_weight(gtk::pango::Weight::Bold));
     heading_style.insert(gtk::pango::AttrFloat::new_scale(1.3));
     heading.set_attributes(Some(&heading_style));
-    sections.append(&heading);
-
-    let explanation = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    let reason_label = text_label("Reason provided by caller");
-    reason_label.add_css_class("dim-label");
-    explanation.append(&reason_label);
-    let reason = text_label(&review.reason);
-    reason.set_selectable(true);
-    explanation.append(&reason);
-    sections.append(&explanation);
+    origin.append(&heading);
+    let path = text_label(&review.working_directory);
+    path.set_selectable(true);
+    origin.append(&path);
+    sections.append(&origin);
 
     add_command_section(&sections, &format_command(&review.command));
+    let reason = text_label(&review.reason);
+    reason.set_selectable(true);
+    sections.append(&reason);
+
     let identity = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    add_detail_row(&identity, "Working directory:", &review.working_directory);
     add_detail_row(&identity, "Run as:", &review.run_as_user);
     add_detail_row(&identity, "Requested by:", &review.requesting_user);
     sections.append(&identity);
@@ -195,8 +194,6 @@ fn text_label(text: &str) -> gtk::Label {
 }
 
 fn add_command_section(container: &gtk::Box, command: &str) {
-    let section = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    section.append(&text_label("Command"));
     let frame = gtk::Frame::new(None);
     let label = text_label(command);
     label.add_css_class("monospace");
@@ -206,8 +203,7 @@ fn add_command_section(container: &gtk::Box, command: &str) {
     label.set_margin_start(12);
     label.set_margin_end(12);
     frame.set_child(Some(&label));
-    section.append(&frame);
-    container.append(&section);
+    container.append(&frame);
 }
 
 fn add_details_section(container: &gtk::Box, review: &Review) {

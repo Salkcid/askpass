@@ -36,7 +36,7 @@ askpass --review
   shell command for execution or parse them with a shell.
 - The reason is caller-provided. The command and other facts are passed by the
   invoking program; `askpass` cannot independently verify them. Preserve this
-  distinction in the labels. In `approve` integration, `approve` must collect
+  distinction in the request details. In `approve` integration, `approve` must collect
   the working directory, user identity, and ancestry independently of the
   reason supplied by its caller.
 - Accept UTF-8 display values. The integrating caller must render any non-UTF-8
@@ -59,15 +59,16 @@ The structured `--review` mode is required for the `approve` integration.
   before considering layer shell.
 - Title the window `Administrator access requested`. Show the fields in a
   readable hierarchy:
-  1. An in-content heading followed by the reason, labeled
-     `Reason provided by caller`.
-  2. A labeled, selectable monospace command block that wraps without truncation.
+  1. An in-content heading `Administrator access requested from:` followed by
+     the selectable working directory on the next line.
+  2. A selectable monospace command block that wraps without truncation.
      Display the supplied command without adding a `sudo` prefix.
      Show ordinary arguments without quotes; escape whitespace,
      backslashes, and control characters within arguments, and display empty
      arguments as `\0`.
-  3. Always-visible `Working directory`, `Run as`, and `Requested by` rows.
-  4. A collapsed `Request details` expander with the requesting UID
+  3. The caller-provided reason, without a separate label.
+  4. Always-visible `Run as` and `Requested by` rows.
+  5. A collapsed `Request details` expander with the requesting UID
      and request origin with ordered PID/executable entries
      or `Unavailable`. Explain that details are supplied by the caller.
 - Display all values literally, except for the command's documented display

@@ -39,7 +39,7 @@ pub fn parse_review(args: impl IntoIterator<Item = OsString>) -> Result<Review, 
     let mut requesting_uid = None;
     let mut run_as_user = None;
     let mut origins = Vec::new();
-    let mut display_bytes = 0usize;
+    let mut request_bytes = "--review".len();
 
     while let Some(option) = args.next() {
         let option = option
@@ -50,11 +50,12 @@ pub fn parse_review(args: impl IntoIterator<Item = OsString>) -> Result<Review, 
             .ok_or_else(|| format!("missing value for {option}"))?
             .into_string()
             .map_err(|_| format!("value for {option} is not UTF-8"))?;
-        display_bytes = display_bytes
-            .checked_add(value.len())
+        request_bytes = request_bytes
+            .checked_add(option.len())
+            .and_then(|bytes| bytes.checked_add(value.len()))
             .ok_or("review request is too large")?;
-        if display_bytes > MAX_DISPLAY_BYTES {
-            return Err("review request exceeds 16 KiB of display text".into());
+        if request_bytes > MAX_DISPLAY_BYTES {
+            return Err("review request exceeds 16 KiB".into());
         }
 
         match option.as_str() {
@@ -194,6 +195,15 @@ mod tests {
             OsString::from("x".repeat(MAX_DISPLAY_BYTES)),
         ]);
         assert!(parse_review(huge).unwrap_err().contains("16 KiB"));
+        let mut many_empty_args = valid();
+        many_empty_args.extend(
+            std::iter::repeat_with(|| [OsString::from("--command-arg"), OsString::new()])
+                .take(MAX_DISPLAY_BYTES / "--command-arg".len() + 1)
+                .flatten(),
+        );
+        assert!(parse_review(many_empty_args)
+            .unwrap_err()
+            .contains("16 KiB"));
         let mut origin = valid();
         origin.extend(["--origin", "0:/bin/sh"].into_iter().map(OsString::from));
         assert!(parse_review(origin).is_err());

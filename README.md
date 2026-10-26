@@ -21,9 +21,9 @@ askpass --review \
 
 Each `--command-arg` is one argument, including empty strings and strings that
 begin with `-`. `--origin PID:EXECUTABLE` may be repeated, nearest ancestor
-first. A request can contain at most 16 KiB of display text. All values must be
-UTF-8; callers must escape non-UTF-8 bytes without losing their original bytes
-for execution.
+first. A request can contain at most 16 KiB of option and value text. All
+values must be UTF-8; callers must escape non-UTF-8 bytes without losing their
+original bytes for execution.
 
 The dialog shows claims supplied by its caller. It cannot verify the claimed
 identity, command, origin, or safety. It does not authenticate the password.

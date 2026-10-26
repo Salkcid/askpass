@@ -113,20 +113,28 @@ Sudo's `SUDO_ASKPASS` interface launches the configured executable with **one
 prompt argument**; it cannot pass `--reason`, `--command-arg`, and the other
 fields directly. See the [sudo askpass interface](https://man.archlinux.org/man/sudo.conf.5.en).
 
-Keep `approve-askpass` as a small adapter beside `approve`:
+Keep `approve-askpass` as a small adapter beside `approve`. The environment
+transport below is private to `approve` and its adapter; `askpass` accepts only
+the structured command-line interface described above.
 
 1. `approve` collects the structured request and observed facts before invoking
-   sudo. It serializes a versioned, bounded payload containing the separate
-   fields, then passes that payload through `sudo -p`. Use an encoding safe from
-   sudo's `%` prompt substitutions, such as base64url over a versioned JSON
-   object. No password is included.
-2. Sudo invokes `approve-askpass` with that one prompt argument. The adapter
-   validates the version and payload, rejects malformed or excessive data,
-   and starts `askpass --review` with separate argv values. It must not use a
-   shell or re-derive facts from a lossy formatted prompt.
-3. The adapter replaces itself with `askpass` or directly pipes its stdout to
-   sudo without inspecting, modifying, storing, or logging the password.
-   Cancellation and failure must propagate as nonzero exits.
+   sudo. It serializes the `--review` option names and values as concatenated
+   length-prefixed UTF-8 fields (`<UTF-8 byte length>:<field>`), preserving empty
+   values and argument boundaries. It passes this bounded payload in
+   `APPROVE_REVIEW` only to the sudo child, alongside `SUDO_ASKPASS` and the
+   resolved executable path in `APPROVE_ASKPASS`. No password is included.
+   Invoke `sudo -k -A -p 'Password: ' -- <command> <arguments...>`; review data
+   never passes through sudo's prompt substitution mechanism.
+2. Sudo invokes `approve-askpass` with one prompt argument. The adapter requires
+   that argument but ignores its contents. It reads `APPROVE_REVIEW`, validates
+   the length-prefixed transport and structured fields, and rejects malformed
+   data or requests exceeding the 16 KiB option/value byte budget before
+   starting `askpass --review` with separate argv values. It must not use a shell
+   or re-derive facts from a formatted prompt.
+3. The adapter removes `APPROVE_REVIEW` from the dialog's environment and replaces
+   itself with the resolved `askpass` executable. Password output flows directly
+   to sudo's askpass pipe without the adapter inspecting, modifying, storing,
+   or logging it. Cancellation and failure must propagate as nonzero exits.
 
 The payload and displayed fields are information from `approve`, not proof of
 what sudo will ultimately execute. Keep the same argument array for `approve`'s

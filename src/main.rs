@@ -22,6 +22,10 @@ fn main() -> std::process::ExitCode {
         eprintln!("askpass: a Wayland display is required");
         return std::process::ExitCode::FAILURE;
     }
+    if let Some(settings) = gtk::Settings::default() {
+        settings.set_gtk_application_prefer_dark_theme(true);
+        settings.set_gtk_label_select_on_focus(false);
+    }
 
     let app = gtk::Application::new(
         Some("org.askpass.Review"),
@@ -44,7 +48,6 @@ fn build_window(app: &gtk::Application, review: &Review, submitted: Rc<Cell<bool
         .application(app)
         .title("Administrator access requested")
         .default_width(560)
-        .default_height(520)
         .build();
 
     let outer = gtk::Box::new(gtk::Orientation::Vertical, 12);
@@ -57,31 +60,13 @@ fn build_window(app: &gtk::Application, review: &Review, submitted: Rc<Cell<bool
     scroll.set_vexpand(true);
     scroll.set_hexpand(true);
     scroll.set_min_content_height(180);
+    scroll.set_max_content_height(420);
+    scroll.set_propagate_natural_height(true);
     let sections = gtk::Box::new(gtk::Orientation::Vertical, 12);
 
-    add_section(&sections, "Reason supplied by caller", &review.reason);
-    let command = review
-        .command
-        .iter()
-        .enumerate()
-        .map(|(index, argument)| format!("{index}: {argument:?}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    add_section(&sections, "Command (argument boundaries)", &command);
-    add_section(
-        &sections,
-        "Working directory",
-        &format!("{:?}", review.working_directory),
-    );
-    add_section(
-        &sections,
-        "Requesting user",
-        &format!(
-            "{:?} (UID {})",
-            review.requesting_user, review.requesting_uid
-        ),
-    );
-    add_section(&sections, "Run as", &format!("{:?}", review.run_as_user));
+    add_command_section(&sections, &format_command(&review.command));
+    add_section(&sections, None, &review.reason);
+    add_details_section(&sections, review);
     let origins = if review.origins.is_empty() {
         "Unavailable from caller".to_owned()
     } else {
@@ -92,7 +77,7 @@ fn build_window(app: &gtk::Application, review: &Review, submitted: Rc<Cell<bool
             .collect::<Vec<_>>()
             .join("\n")
     };
-    add_section(&sections, "Origin observed by caller", &origins);
+    add_section(&sections, Some("Origin observed by caller"), &origins);
     scroll.set_child(Some(&sections));
     outer.append(&scroll);
 
@@ -157,8 +142,51 @@ fn build_window(app: &gtk::Application, review: &Review, submitted: Rc<Cell<bool
     password.grab_focus();
 }
 
-fn add_section(container: &gtk::Box, title: &str, value: &str) {
-    let frame = gtk::Frame::new(Some(title));
+fn format_command(command: &[String]) -> String {
+    let mut display = String::from("sudo");
+    for argument in command {
+        display.push(' ');
+        if argument.is_empty() {
+            display.push_str("\\0");
+            continue;
+        }
+        for character in argument.chars() {
+            match character {
+                '\\' => display.push_str("\\\\"),
+                ' ' => display.push_str("\\ "),
+                '\t' => display.push_str("\\t"),
+                '\n' => display.push_str("\\n"),
+                '\r' => display.push_str("\\r"),
+                character if character.is_whitespace() || character.is_control() => {
+                    display.push_str(&format!("\\u{{{:x}}}", character as u32));
+                }
+                character => display.push(character),
+            }
+        }
+    }
+    display
+}
+
+fn add_command_section(container: &gtk::Box, command: &str) {
+    let frame = gtk::Frame::new(None);
+    let scroll = gtk::ScrolledWindow::new();
+    scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Never);
+    scroll.set_hexpand(true);
+
+    let label = gtk::Label::new(Some(command));
+    label.set_selectable(true);
+    label.set_xalign(0.0);
+    label.set_margin_top(8);
+    label.set_margin_bottom(8);
+    label.set_margin_start(10);
+    label.set_margin_end(10);
+    scroll.set_child(Some(&label));
+    frame.set_child(Some(&scroll));
+    container.append(&frame);
+}
+
+fn add_section(container: &gtk::Box, title: Option<&str>, value: &str) {
+    let frame = gtk::Frame::new(title);
     let label = gtk::Label::new(None);
     label.set_text(value);
     label.set_selectable(true);
@@ -172,4 +200,66 @@ fn add_section(container: &gtk::Box, title: &str, value: &str) {
     label.set_margin_end(10);
     frame.set_child(Some(&label));
     container.append(&frame);
+}
+
+fn add_details_section(container: &gtk::Box, review: &Review) {
+    let frame = gtk::Frame::new(None);
+    let details = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    details.set_margin_top(8);
+    details.set_margin_bottom(8);
+    details.set_margin_start(10);
+    details.set_margin_end(10);
+
+    add_detail_row(&details, "Working directory:", &review.working_directory);
+    add_detail_row(
+        &details,
+        "Requesting user:",
+        &format!("{} ({})", review.requesting_user, review.requesting_uid),
+    );
+    add_detail_row(&details, "Run as:", &review.run_as_user);
+
+    frame.set_child(Some(&details));
+    container.append(&frame);
+}
+
+fn add_detail_row(container: &gtk::Box, title: &str, value: &str) {
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+
+    let title_label = gtk::Label::new(Some(title));
+    row.append(&title_label);
+
+    let value_label = gtk::Label::new(Some(value));
+    value_label.set_selectable(true);
+    value_label.set_wrap(true);
+    value_label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    value_label.set_xalign(0.0);
+    value_label.set_hexpand(true);
+    row.append(&value_label);
+
+    container.append(&row);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_command;
+
+    #[test]
+    fn command_is_one_line_without_added_quotes() {
+        let command = [
+            "nixos-rebuild".into(),
+            "switch".into(),
+            "--flake".into(),
+            "/home/qy1n/nixos#laptop".into(),
+        ];
+        assert_eq!(
+            format_command(&command),
+            "sudo nixos-rebuild switch --flake /home/qy1n/nixos#laptop"
+        );
+    }
+
+    #[test]
+    fn command_preserves_unusual_argument_boundaries() {
+        let command = ["a b".into(), "".into(), "a\\b".into(), "a\nb".into()];
+        assert_eq!(format_command(&command), "sudo a\\ b \\0 a\\\\b a\\nb");
+    }
 }

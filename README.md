@@ -10,19 +10,23 @@ Build with `nix develop -c cargo build --release` or from a shell with Rust,
 GTK 4 development files, and `pkg-config` installed. The binary is
 `target/release/askpass`.
 
-Example:
+To preview the dialog from the development shell:
 
 ```sh
-askpass --review \
-  --reason 'Install updates' \
-  --command-arg /usr/bin/true \
-  --working-directory /tmp \
-  --requesting-user "$USER" --requesting-uid "$(id -u)" \
-  --run-as-user root
+nix develop -c cargo run -- --review \
+  --reason 'Rebuild the laptop configuration' \
+  --command-arg nixos-rebuild \
+  --command-arg switch \
+  --command-arg --flake \
+  --command-arg '/home/qy1n/nixos#laptop' \
+  --working-directory "$PWD" \
+  --requesting-user "$USER" \
+  --requesting-uid "$(id -u)" \
+  --run-as-user root | cat >/dev/null
 ```
 
-The example shows the arguments; a caller must connect stdout to a pipe for
-the dialog to open.
+The pipe allows the dialog to open and discards any submitted password. This
+preview only displays the request; it does not execute the displayed command.
 
 Each `--command-arg` is one argument, including empty strings and strings that
 begin with `-`. `--origin PID:EXECUTABLE` may be repeated, nearest ancestor
